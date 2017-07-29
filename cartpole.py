@@ -1,5 +1,4 @@
 import numpy as np
-import cPickle as pickle
 import tensorflow as tf
 
 import matplotlib.pyplot as plt
@@ -32,8 +31,6 @@ W2 = tf.get_variable("W2", shape=[H_SIZE, 2],
            initializer=tf.contrib.layers.xavier_initializer())
 logits = tf.matmul(layer1,W2)
 
-#probability = tf.nn.sigmoid(score)
-
 #From here we define the parts of the network needed for learning a good policy.
 tvars = tf.trainable_variables()
 input_y = tf.placeholder(tf.float32,[None,2], name="input_y")
@@ -48,7 +45,8 @@ ce1 = tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=input_y)
 #ce2 = -tf.reduce_sum(input_y * probs_log, reduction_indices=[1])
 # following lines do inner product
 mul_by_adv = tf.multiply(advantages, tf.reshape(ce1, [-1, 1]))
-loss_new = tf.reduce_sum(mul_by_adv) 
+reg_loss = -(0.5 * tf.reduce_mean(tf.square(W1 * W1)) + 0.5 * tf.reduce_mean(tf.square(W2 * W2)))
+loss_new = (1-REG)*tf.reduce_mean(mul_by_adv) + REG*reg_loss
 
 adam = tf.train.AdamOptimizer(learning_rate=ETA) # Adam optimizer
 # next line returns for each layer the a (grads, vars) pair, but we dont want to use it as-is, we want to accumulate grad
@@ -59,7 +57,7 @@ def discount_rewards(r):
     """ take 1D float array of rewards and compute discounted reward """
     discounted_r = np.zeros_like(r)
     running_add = 0
-    for t in reversed(xrange(0, r.size)):
+    for t in reversed(range(0, r.size)):
         running_add = running_add * GAMMA + r[t]
         discounted_r[t] = running_add
     return discounted_r
@@ -71,6 +69,8 @@ episode_number = 1
 total_episodes = 10000
 init = tf.initialize_all_variables()
 
+reward_per_episode = []
+running_reward=0
 # Training
 with tf.Session() as sess:
     rendering = False
@@ -111,12 +111,14 @@ with tf.Session() as sess:
             discounted_epr /= np.std(discounted_epr)
             
             sess.run(updateGrads,feed_dict={input_x: epx, input_y: epy, advantages: discounted_epr})
+            
+            reward_per_episode.append(reward_sum)
             # Print details of the present model
-            running_reward = reward_sum if running_reward is None else running_reward * 0.99 + reward_sum * 0.01
-            print 'Episode %d: Average reward for episode %f.  Running average reward %f.' % (episode_number, reward_sum, running_reward)
+            running_reward = np.mean(reward_per_episode[-100:])
+            print('Episode %d: Average reward for episode %f.  Running average reward %f.' % (episode_number, reward_sum, running_reward))
                 
-            if running_reward > 195: 
-                print "Task solved in",episode_number,'episodes'
+            if len(reward_per_episode) > 100 and running_reward > 195: 
+                print("Task solved in",episode_number,'episodes')
                 break
                     
             reward_sum = 0            
@@ -126,4 +128,4 @@ with tf.Session() as sess:
         #    env.render()
             rendering = True
         
-print episode_number,'Episodes completed.'
+print(episode_number,'Episodes completed.')
